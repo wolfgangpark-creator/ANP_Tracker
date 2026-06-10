@@ -1,0 +1,1185 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ANP 측정 결과 뷰어</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap');
+:root{
+  --bg:#f4f3ef;--surface:#fff;--border:#e2e0d8;
+  --text:#1a1a18;--sub:#6b6960;--accent:#2563eb;--al:#eff4ff;
+  --green:#16a34a;--amber:#d97706;--orange:#ea580c;--red:#dc2626;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'IBM Plex Sans KR',sans-serif;background:var(--bg);color:var(--text);font-size:13px;line-height:1.5;}
+header{background:var(--text);color:white;padding:7px 20px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:200;}
+header h1{font-size:13px;font-weight:500;flex:1;}
+.mono{font-family:'IBM Plex Mono',monospace;font-size:11px;color:#9ca3af;}
+
+#upload-zone{margin:16px 20px;border:2px dashed var(--border);border-radius:10px;padding:24px;text-align:center;cursor:pointer;transition:all .2s;background:var(--surface);}
+#upload-zone:hover,#upload-zone.drag-over{border-color:var(--accent);background:var(--al);}
+#upload-zone h2{font-size:13px;font-weight:500;margin-bottom:4px;}
+#upload-zone p{color:var(--sub);font-size:11px;}
+#upload-zone input{display:none;}
+.upload-icon{font-size:24px;margin-bottom:6px;}
+#file-tags{display:flex;flex-wrap:wrap;gap:6px;padding:0 20px 8px;}
+.file-tag{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:2px 9px;font-size:11px;font-family:'IBM Plex Mono',monospace;display:flex;align-items:center;gap:5px;}
+.file-tag .dot{width:5px;height:5px;border-radius:50%;background:var(--accent);}
+#loading{display:none;text-align:center;padding:12px;color:var(--sub);font-size:12px;}
+#debug-box{margin:0 20px 8px;background:#fff3cd;border:1px solid #ffc107;border-radius:6px;padding:8px 12px;font-size:11px;font-family:'IBM Plex Mono',monospace;display:none;white-space:pre-wrap;max-height:160px;overflow-y:auto;}
+
+#app{display:none;padding:0 20px 20px;}
+.tabs{display:flex;gap:2px;margin-bottom:8px;border-bottom:2px solid var(--border);}
+.tab{padding:5px 14px;font-size:12px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:var(--sub);transition:all .15s;}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+.tab-content{display:none;}
+.tab-content.active{display:block;}
+
+.ctrl-bar{display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:7px 12px;margin-bottom:8px;flex-wrap:wrap;}
+.ctrl-label{font-size:10px;font-weight:600;color:var(--sub);text-transform:uppercase;letter-spacing:.06em;white-space:nowrap;}
+.divider{width:1px;height:20px;background:var(--border);flex-shrink:0;}
+.btn-group{display:flex;gap:3px;}
+.btn{padding:3px 10px;border:1px solid var(--border);border-radius:5px;background:white;font-family:'IBM Plex Sans KR',sans-serif;font-size:11px;cursor:pointer;transition:all .15s;white-space:nowrap;}
+.btn:hover{border-color:var(--accent);color:var(--accent);}
+.btn.active{background:var(--accent);border-color:var(--accent);color:white;font-weight:500;}
+select{padding:3px 7px;border:1px solid var(--border);border-radius:5px;font-family:'IBM Plex Sans KR',sans-serif;font-size:11px;background:white;cursor:pointer;}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:8px;overflow:hidden;}
+.card-hdr{padding:7px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;background:#fafaf8;}
+.card-title{font-size:12px;font-weight:600;}
+/* 트렌드 카드: 화면에 꽉 차게 */
+#trend-card{display:flex;flex-direction:column;height:calc(100vh - 130px);}
+#trend-card .grid-wrap{flex:1;overflow-x:auto;overflow-y:auto;padding:6px 10px;}
+
+.grid-wrap{overflow-x:auto;overflow-y:visible;padding:6px 10px;}
+.panel-grid{display:grid;grid-template-columns:28px repeat(6,minmax(140px,1fr));gap:4px;min-width:900px;}
+.axis-lbl{display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:600;color:var(--sub);writing-mode:horizontal-tb;}
+.hobi-hdr{text-align:center;font-size:10px;font-weight:600;color:var(--sub);padding:1px 0 3px;}
+.panel-wrap{border:1px solid var(--border);border-radius:5px;overflow:hidden;background:white;cursor:pointer;transition:box-shadow .15s;display:flex;flex-direction:column;}
+.panel-wrap:hover{box-shadow:0 0 0 2px var(--accent);}
+.panel-wrap canvas{display:block;width:100% !important;flex-shrink:0;}
+
+.mini-tbl-wrap{padding:1px 2px 2px;overflow-x:auto;}
+.mini-tbl{width:100%;border-collapse:collapse;font-size:8px;font-family:'IBM Plex Mono',monospace;}
+.mini-tbl th{background:#f4f3ef;padding:1px 3px;border:1px solid #ece9e0;text-align:center;font-size:8px;white-space:nowrap;}
+.mini-tbl td{padding:1px 3px;border:1px solid #ece9e0;text-align:center;white-space:nowrap;}
+.mini-tbl .rlbl{text-align:left;font-family:'IBM Plex Sans KR',sans-serif;font-size:8px;font-weight:500;background:#fafaf8;padding-left:3px;}
+.cg{background:#f0fdf4;color:#15803d;}
+.ca{background:#fffbeb;color:#b45309;}
+.co{background:#fff7ed;color:#c2410c;}
+.cr{background:#fef2f2;color:#b91c1c;}
+
+.legend{display:flex;gap:10px;flex-wrap:wrap;padding:4px 14px;border-top:1px solid var(--border);background:#fafaf8;}
+.legend-item{display:flex;align-items:center;gap:4px;font-size:10px;color:var(--sub);}
+.leg-line{width:14px;height:2px;border-radius:1px;display:inline-block;}
+
+/* modal */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:500;align-items:center;justify-content:center;}
+.modal-overlay.open{display:flex;}
+.modal{background:white;border-radius:12px;width:92vw;max-width:1100px;max-height:92vh;overflow:hidden;display:flex;flex-direction:column;}
+.modal-hdr{padding:14px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;background:#fafaf8;flex-shrink:0;}
+.modal-title{font-size:15px;font-weight:600;flex:1;}
+.modal-close{width:28px;height:28px;border:none;background:none;cursor:pointer;font-size:18px;color:var(--sub);}
+.modal-body{padding:20px;overflow-y:auto;display:flex;flex-direction:column;gap:16px;}
+.modal-chart-wrap{position:relative;height:300px;}
+.modal-tbl-wrap{overflow-x:auto;}
+table.detail-tbl{width:100%;border-collapse:collapse;font-size:12px;font-family:'IBM Plex Mono',monospace;}
+table.detail-tbl th{background:#f4f3ef;padding:7px 10px;border:1px solid var(--border);text-align:center;font-size:11px;white-space:nowrap;}
+table.detail-tbl td{padding:6px 10px;border:1px solid var(--border);text-align:center;white-space:nowrap;}
+table.detail-tbl .rlbl{text-align:left;font-family:'IBM Plex Sans KR',sans-serif;font-size:12px;font-weight:500;background:#fafaf8;min-width:120px;}
+table.detail-tbl .sep-row td{background:#f0efe9;height:3px;padding:0;border:none;}
+
+/* compare */
+.cmp-pairs{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.cmp-panel{border:1px solid var(--border);border-radius:8px;overflow:hidden;}
+.cmp-panel-hdr{padding:8px 14px;font-size:13px;font-weight:600;color:white;}
+.cmp-canvas-wrap{padding:10px 12px 8px;}
+
+/* manual */
+.man-section{margin-bottom:22px;}
+.man-title{font-size:13px;font-weight:700;color:var(--text);margin-bottom:8px;padding-bottom:4px;border-bottom:2px solid var(--accent);}
+.man-p{font-size:12px;color:#374151;line-height:1.7;margin-bottom:8px;}
+.man-code{background:#1e293b;color:#93c5fd;font-family:'IBM Plex Mono',monospace;font-size:11px;padding:10px 14px;border-radius:6px;line-height:1.8;margin-bottom:8px;}
+.man-note{background:#fffbeb;border-left:3px solid #f59e0b;padding:7px 12px;font-size:11px;color:#92400e;border-radius:0 4px 4px 0;margin-top:6px;line-height:1.6;}
+.man-step{display:flex;align-items:flex-start;gap:10px;margin-bottom:7px;font-size:12px;color:#374151;line-height:1.6;}
+.step-num{background:var(--accent);color:white;font-size:10px;font-weight:700;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px;}
+.man-tbl{width:100%;border-collapse:collapse;font-size:11px;margin-bottom:6px;}
+.man-tbl th{background:#f4f3ef;padding:6px 10px;border:1px solid var(--border);text-align:left;font-weight:600;font-size:11px;}
+.man-tbl td{padding:6px 10px;border:1px solid var(--border);font-size:11px;line-height:1.5;}
+.man-tbl code{background:#f0eff9;color:#4338ca;padding:1px 5px;border-radius:3px;font-family:'IBM Plex Mono',monospace;font-size:10px;}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>ANP 측정 결과 뷰어</h1>
+  <span class="mono" style="color:#6b7280;font-size:10px;letter-spacing:.04em;">V1.0.00_260610</span>
+  <span class="mono" id="hdr-status">파일을 업로드하세요</span>
+  <button onclick="openManual()" style="margin-left:auto;padding:4px 12px;background:transparent;border:1px solid #4b5563;border-radius:5px;color:#d1d5db;font-size:11px;cursor:pointer;font-family:'IBM Plex Sans KR',sans-serif;transition:all .15s;" onmouseover="this.style.background='#374151'" onmouseout="this.style.background='transparent'">📖 사용 매뉴얼</button>
+</header>
+
+<div id="upload-zone" onclick="document.getElementById('fi').click()">
+  <div class="upload-icon">📂</div>
+  <h2>엑셀 파일 드래그 또는 클릭 업로드</h2>
+  <p>여러 파일 동시 선택 가능 · Raw_0K / Raw_5K 시트 자동 인식</p>
+  <input type="file" id="fi" accept=".xlsx" multiple>
+</div>
+<div id="file-tags"></div>
+<div id="loading">⏳ 데이터 처리 중...</div>
+<div id="debug-box"></div>
+
+<div id="app">
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('trend')">📈 트렌드 분석</div>
+    <div class="tab" onclick="switchTab('compare')">🔍 호기 비교</div>
+  </div>
+
+  <!-- 트렌드 탭 -->
+  <div class="tab-content active" id="tab-trend">
+    <div class="ctrl-bar">
+      <span class="ctrl-label">모드</span>
+      <div class="btn-group">
+        <button class="btn active" id="bm-case" onclick="setMode('case')">케이스 기준</button>
+        <button class="btn" id="bm-spec" onclick="setMode('spec')">스펙 기준</button>
+      </div>
+      <div class="divider"></div>
+      <div id="ctrl-metric" style="display:flex;align-items:center;gap:8px;">
+        <span class="ctrl-label">지표</span>
+        <div class="btn-group" id="metric-btns">
+          <button class="btn active" onclick="setMetric('A')">A — Accuracy</button>
+          <button class="btn" onclick="setMetric('R')">P — Precision</button>
+          <button class="btn" onclick="setMetric('B')">H — Hysteresis</button>
+          <button class="btn" onclick="setMetric('OE')">EN — Excess Nodes</button>
+        </div>
+      </div>
+      <div id="ctrl-case" style="display:none;align-items:center;gap:8px;">
+        <span class="ctrl-label">케이스</span>
+        <div class="btn-group" id="case-btns">
+          <button class="btn active" onclick="setCase('case1')">case1</button>
+          <button class="btn" onclick="setCase('case2')">case2</button>
+          <button class="btn" onclick="setCase('case3')">case3</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" id="trend-card">
+      <div class="card-hdr">
+        <span class="card-title" id="panel-title">케이스별 트렌드</span>
+        <span style="font-size:11px;color:var(--sub);margin-left:auto;">패널 클릭 → 상세보기</span>
+      </div>
+      <div class="grid-wrap">
+        <div class="panel-grid" id="panel-grid"></div>
+      </div>
+      <div class="legend" id="main-legend"></div>
+    </div>
+  </div>
+
+  <!-- 비교 탭 -->
+  <div class="tab-content" id="tab-compare">
+    <div class="ctrl-bar">
+      <span class="ctrl-label">축</span>
+      <div class="btn-group">
+        <button class="btn active" id="cax-X" onclick="setCmpAxis('X')">X축</button>
+        <button class="btn" id="cax-Y" onclick="setCmpAxis('Y')">Y축</button>
+      </div>
+      <div class="divider"></div>
+      <span class="ctrl-label">기준</span>
+      <div class="btn-group">
+        <button class="btn active" id="cbm-case" onclick="setCmpMode('case')">케이스 기준</button>
+        <button class="btn" id="cbm-spec" onclick="setCmpMode('spec')">스펙 기준</button>
+      </div>
+      <div class="divider"></div>
+      <div id="cctrl-metric" style="display:flex;align-items:center;gap:8px;">
+        <span class="ctrl-label">지표</span>
+        <div class="btn-group" id="cmp-metric-btns">
+          <button class="btn active" onclick="setCmpMetric('A')">A — Accuracy</button>
+          <button class="btn" onclick="setCmpMetric('R')">P — Precision</button>
+          <button class="btn" onclick="setCmpMetric('B')">H — Hysteresis</button>
+          <button class="btn" onclick="setCmpMetric('OE')">EN — Excess Nodes</button>
+        </div>
+      </div>
+      <div id="cctrl-case" style="display:none;align-items:center;gap:8px;">
+        <span class="ctrl-label">케이스</span>
+        <div class="btn-group" id="cmp-case-btns">
+          <button class="btn active" onclick="setCmpCase('case1')">case1</button>
+          <button class="btn" onclick="setCmpCase('case2')">case2</button>
+          <button class="btn" onclick="setCmpCase('case3')">case3</button>
+        </div>
+      </div>
+      <div class="divider"></div>
+      <span class="ctrl-label">비교 대상</span>
+      <select id="cmp-a" onchange="refreshCompare()">
+        <option value="1">1호기</option><option value="2">2호기</option>
+        <option value="3">3호기</option><option value="4">4호기</option>
+        <option value="5">5호기</option><option value="6">6호기</option>
+      </select>
+      <span style="color:var(--sub);font-size:12px;">vs</span>
+      <select id="cmp-b" onchange="refreshCompare()">
+        <option value="1">1호기</option><option value="2" selected>2호기</option>
+        <option value="3">3호기</option><option value="4">4호기</option>
+        <option value="5">5호기</option><option value="6">6호기</option>
+      </select>
+    </div>
+    <div class="cmp-pairs" id="cmp-pairs"></div>
+  </div>
+</div>
+
+<!-- 매뉴얼 모달 -->
+<div class="modal-overlay" id="manual-modal" onclick="if(event.target===this)closeManual()">
+  <div class="modal" style="max-width:780px;">
+    <div class="modal-hdr">
+      <span class="modal-title">📖 ANP 측정 결과 뷰어 — 사용 매뉴얼</span>
+      <span class="mono" style="font-size:10px;color:#9ca3af;margin-right:8px;">V1.0.00_260610</span>
+      <button class="modal-close" onclick="closeManual()">✕</button>
+    </div>
+    <div class="modal-body" style="gap:0;padding:0;">
+
+      <!-- 탭 네비 -->
+      <div style="display:flex;gap:0;border-bottom:2px solid #e2e0d8;background:#fafaf8;flex-shrink:0;">
+        <div class="mtab active" onclick="switchMTab(0)" id="mtab-0" style="padding:9px 18px;font-size:12px;font-weight:500;cursor:pointer;border-bottom:2px solid #2563eb;margin-bottom:-2px;color:#2563eb;">📂 파일 준비</div>
+        <div class="mtab" onclick="switchMTab(1)" id="mtab-1" style="padding:9px 18px;font-size:12px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:#6b6960;">📈 트렌드 분석</div>
+        <div class="mtab" onclick="switchMTab(2)" id="mtab-2" style="padding:9px 18px;font-size:12px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:#6b6960;">🔍 호기 비교</div>
+        <div class="mtab" onclick="switchMTab(3)" id="mtab-3" style="padding:9px 18px;font-size:12px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:#6b6960;">📊 지표 설명</div>
+        <div class="mtab" onclick="switchMTab(4)" id="mtab-4" style="padding:9px 18px;font-size:12px;font-weight:500;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:#6b6960;">🎨 색상 가이드</div>
+      </div>
+
+      <!-- 탭 콘텐츠 -->
+      <div style="padding:22px 24px;overflow-y:auto;max-height:62vh;">
+
+        <!-- 0: 파일 준비 -->
+        <div id="mc-0">
+          <div class="man-section">
+            <div class="man-title">파일 구조 규칙</div>
+            <p class="man-p">프로그램은 엑셀 파일(.xlsx) 내의 <b>Raw 시트명</b>으로 회차를 자동 인식합니다.<br>시트명은 반드시 아래 형식을 따라야 합니다.</p>
+            <div class="man-code">Raw_0K &nbsp;→&nbsp; 0K 회차<br>Raw_5K &nbsp;→&nbsp; 5K 회차<br>Raw_10K → 10K 회차<br>Raw_20K → 20K 회차<br>Raw_30K → 30K 회차</div>
+            <div class="man-note">⚠ 대소문자 구분 없음 (Raw_0k, RAW_0K 모두 인식)</div>
+          </div>
+          <div class="man-section">
+            <div class="man-title">Raw 시트 컬럼 구성</div>
+            <p class="man-p">Raw 시트의 1행은 반드시 아래 헤더명을 포함해야 합니다.</p>
+            <table class="man-tbl">
+              <tr><th>컬럼명</th><th>설명</th><th>필수</th></tr>
+              <tr><td>호기</td><td>장비 번호 (1~6)</td><td>✅</td></tr>
+              <tr><td>축</td><td>측정 축 (X 또는 Y)</td><td>✅</td></tr>
+              <tr><td>케이스</td><td>측정 조건 (case1 / case2 / case3)</td><td>✅</td></tr>
+              <tr><td>A(μm)</td><td>Accuracy 측정값</td><td>✅</td></tr>
+              <tr><td>R(μm)</td><td>Precision 측정값</td><td>✅</td></tr>
+              <tr><td>B_bar(μm)</td><td>Hysteresis 측정값</td><td>✅</td></tr>
+              <tr><td>허용오차초과(개)</td><td>Excess Nodes 측정값</td><td>✅</td></tr>
+            </table>
+          </div>
+          <div class="man-section">
+            <div class="man-title">파일 업로드 방법</div>
+            <div class="man-step"><span class="step-num">1</span>화면 중앙의 업로드 영역을 <b>클릭</b>하거나, 엑셀 파일을 <b>드래그 앤 드롭</b></div>
+            <div class="man-step"><span class="step-num">2</span><b>여러 파일을 동시에</b> 선택할 수 있습니다 (각 회차 파일을 한 번에 업로드)</div>
+            <div class="man-step"><span class="step-num">3</span>업로드 후 상단에 인식된 회차 목록이 표시됩니다 (예: <code>2개 회차 · 0K / 5K</code>)</div>
+            <div class="man-note">💡 파일명은 자유롭게 지정해도 됩니다. 시트명으로만 회차를 인식합니다.</div>
+          </div>
+        </div>
+
+        <!-- 1: 트렌드 분석 -->
+        <div id="mc-1" style="display:none;">
+          <div class="man-section">
+            <div class="man-title">모드 선택</div>
+            <table class="man-tbl">
+              <tr><th>모드</th><th>그래프 라인</th><th>선택 항목</th></tr>
+              <tr><td><b>케이스 기준</b></td><td>case1 / case2 / case3 (3개 라인)</td><td>지표 선택 (A / P / H / EN)</td></tr>
+              <tr><td><b>스펙 기준</b></td><td>A / P / H / EN (4개 라인)</td><td>케이스 선택 (case1~3)</td></tr>
+            </table>
+            <div class="man-note">💡 스펙 기준에서 A/P/H는 좌측 Y축(μm), EN은 우측 Y축(개)으로 표시됩니다.</div>
+          </div>
+          <div class="man-section">
+            <div class="man-title">12패널 그리드</div>
+            <p class="man-p">6호기 × 2축(X/Y) = 12개 패널이 동시에 표시됩니다.<br>모든 패널은 <b>동일한 Y축 스케일</b>을 사용하므로 호기 간 절대값 비교가 가능합니다.</p>
+            <div class="man-step"><span class="step-num">!</span>실선 점: 실제 측정 회차 / 점선 영역: 미래 예정 회차 (데이터 없음)</div>
+          </div>
+          <div class="man-section">
+            <div class="man-title">패널 하단 열화표</div>
+            <p class="man-p">각 패널 아래에 0K 기준 변화율(%)이 자동 계산됩니다.</p>
+            <table class="man-tbl">
+              <tr><th>색상</th><th>범위</th><th>의미</th></tr>
+              <tr><td style="color:#15803d;background:#f0fdf4;">초록</td><td>≤ 105%</td><td>정상 (0K 대비 5% 이내)</td></tr>
+              <tr><td style="color:#b45309;background:#fffbeb;">노랑</td><td>106~115%</td><td>주의 (5~15% 증가)</td></tr>
+              <tr><td style="color:#c2410c;background:#fff7ed;">주황</td><td>116~130%</td><td>경고 (15~30% 증가)</td></tr>
+              <tr><td style="color:#b91c1c;background:#fef2f2;">빨강</td><td>> 130%</td><td>위험 (30% 초과)</td></tr>
+            </table>
+          </div>
+          <div class="man-section">
+            <div class="man-title">상세보기 팝업</div>
+            <p class="man-p">패널을 <b>클릭</b>하면 상세보기 팝업이 열립니다.</p>
+            <div class="man-step"><span class="step-num">1</span>큰 차트에 각 측정값의 <b>Range 밴드</b>가 함께 표시됩니다 (옅은 색 영역 = ±range/2)</div>
+            <div class="man-step"><span class="step-num">2</span>하단 표에 실제 측정값과 <b>±range/2</b>가 작은 글씨로 함께 표시됩니다</div>
+            <div class="man-step"><span class="step-num">3</span>구분선 아래에 0K 기준 변화율(%) 또는 Δ값이 색상과 함께 표시됩니다</div>
+            <div class="man-note">💡 ESC 키 또는 배경 클릭으로 팝업을 닫을 수 있습니다.</div>
+          </div>
+        </div>
+
+        <!-- 2: 호기 비교 -->
+        <div id="mc-2" style="display:none;">
+          <div class="man-section">
+            <div class="man-title">호기 비교 탭 사용법</div>
+            <div class="man-step"><span class="step-num">1</span><b>축 선택</b>: X축 또는 Y축 중 하나를 선택합니다</div>
+            <div class="man-step"><span class="step-num">2</span><b>기준 선택</b>: 케이스 기준 또는 스펙 기준을 선택합니다</div>
+            <div class="man-step"><span class="step-num">3</span><b>지표/케이스 선택</b>: 기준에 따라 비교할 지표 또는 케이스를 선택합니다</div>
+            <div class="man-step"><span class="step-num">4</span><b>비교 대상 선택</b>: 호기 A와 호기 B를 각각 드롭다운에서 선택합니다</div>
+            <div class="man-note">💡 두 패널은 동일한 Y축 스케일을 공유하므로 직접 비교가 가능합니다.</div>
+          </div>
+          <div class="man-section">
+            <div class="man-title">비교 차트 구성</div>
+            <table class="man-tbl">
+              <tr><th>모드</th><th>라인 구성</th></tr>
+              <tr><td>케이스 기준</td><td>선택 지표의 case1 / case2 / case3 라인 (3개)</td></tr>
+              <tr><td>스펙 기준</td><td>선택 케이스의 A / P / H (좌축) + EN (우축) (4개)</td></tr>
+            </table>
+          </div>
+        </div>
+
+        <!-- 3: 지표 설명 -->
+        <div id="mc-3" style="display:none;">
+          <div class="man-section">
+            <div class="man-title">ISO 230-2 측정 지표</div>
+            <table class="man-tbl">
+              <tr><th>표기</th><th>전체명</th><th>단위</th><th>설명</th></tr>
+              <tr>
+                <td><b style="color:#2563eb;">A</b></td>
+                <td>Accuracy (정확도)</td><td>μm</td>
+                <td>목표 위치에 대한 실제 도달 위치의 편차 범위. 값이 작을수록 우수.</td>
+              </tr>
+              <tr>
+                <td><b style="color:#16a34a;">P</b></td>
+                <td>Precision (반복 정밀도)</td><td>μm</td>
+                <td>동일 위치를 반복 이동할 때의 산포 범위. 값이 작을수록 우수.</td>
+              </tr>
+              <tr>
+                <td><b style="color:#8b5cf6;">H</b></td>
+                <td>Hysteresis (히스테리시스)</td><td>μm</td>
+                <td>정방향/역방향 이동 시 위치 차이. 절대값으로 표시. 값이 작을수록 우수.</td>
+              </tr>
+              <tr>
+                <td><b style="color:#f59e0b;">EN</b></td>
+                <td>Excess Nodes (허용오차 초과)</td><td>개</td>
+                <td>허용 오차 범위를 초과한 측정 노드 수. 0에 가까울수록 우수.</td>
+              </tr>
+            </table>
+          </div>
+          <div class="man-section">
+            <div class="man-title">케이스(case) 의미</div>
+            <table class="man-tbl">
+              <tr><th>케이스</th><th>설명</th></tr>
+              <tr><td><b>case1</b></td><td>측정 조건 1 (첫 번째 측정 세트)</td></tr>
+              <tr><td><b>case2</b></td><td>측정 조건 2 (두 번째 측정 세트)</td></tr>
+              <tr><td><b>case3</b></td><td>측정 조건 3 (세 번째 측정 세트)</td></tr>
+            </table>
+            <div class="man-note">💡 각 케이스는 동일 호기에서 서로 다른 조건 또는 반복 측정을 의미합니다.</div>
+          </div>
+          <div class="man-section">
+            <div class="man-title">Range (범위)</div>
+            <p class="man-p">각 케이스에서 3회 반복 측정한 값의 <b>최대값 − 최소값</b>입니다.<br>상세보기 팝업의 그래프에서 <b>옅은 밴드</b>로, 표에서 <b>±range/2</b>로 표시됩니다.<br>Range가 클수록 측정 재현성이 낮음을 의미합니다.</p>
+          </div>
+        </div>
+
+        <!-- 4: 색상 가이드 -->
+        <div id="mc-4" style="display:none;">
+          <div class="man-section">
+            <div class="man-title">열화표 색상 기준 (0K 대비 변화율)</div>
+            <table class="man-tbl">
+              <tr><th>색상</th><th>조건</th><th>의미</th></tr>
+              <tr><td style="background:#f0fdf4;color:#15803d;font-weight:600;">초록</td><td>≤ 105%</td><td>정상 — 0K 대비 5% 이내 변화</td></tr>
+              <tr><td style="background:#fffbeb;color:#b45309;font-weight:600;">노랑</td><td>106% ~ 115%</td><td>주의 — 5~15% 증가</td></tr>
+              <tr><td style="background:#fff7ed;color:#c2410c;font-weight:600;">주황</td><td>116% ~ 130%</td><td>경고 — 15~30% 증가</td></tr>
+              <tr><td style="background:#fef2f2;color:#b91c1c;font-weight:600;">빨강</td><td>&gt; 130%</td><td>위험 — 30% 초과 증가</td></tr>
+            </table>
+            <div class="man-note">⚠ H(Hysteresis)와 EN(Excess Nodes)은 % 대신 Δ값으로 표시됩니다.<br>Δ > 0 이면 악화, Δ ≤ 0 이면 개선으로 판단합니다.</div>
+          </div>
+          <div class="man-section">
+            <div class="man-title">그래프 라인 색상</div>
+            <table class="man-tbl">
+              <tr><th>색상</th><th>케이스 기준</th><th>스펙 기준</th></tr>
+              <tr><td style="color:#2563eb;font-weight:700;">■ 파랑</td><td>case1</td><td>A — Accuracy</td></tr>
+              <tr><td style="color:#16a34a;font-weight:700;">■ 초록</td><td>case2</td><td>P — Precision</td></tr>
+              <tr><td style="color:#ea580c;font-weight:700;">■ 주황</td><td>case3</td><td>—</td></tr>
+              <tr><td style="color:#8b5cf6;font-weight:700;">■ 보라</td><td>—</td><td>H — Hysteresis</td></tr>
+              <tr><td style="color:#f59e0b;font-weight:700;">■ 노랑</td><td>—</td><td>EN — Excess Nodes (우축)</td></tr>
+            </table>
+          </div>
+        </div>
+
+      </div><!-- end scroll area -->
+    </div>
+  </div>
+</div>
+
+<!-- 상세 팝업 -->
+<div class="modal-overlay" id="modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <div class="modal-hdr">
+      <span class="modal-title" id="modal-title"></span>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-chart-wrap"><canvas id="modal-canvas"></canvas></div>
+      <div class="modal-tbl-wrap"><table class="detail-tbl" id="modal-table"></table></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════
+// 상수
+// ═══════════════════════════════
+const HOBIS=[1,2,3,4,5,6];
+const AXES=['X','Y'];
+const CASES=['case1','case2','case3'];
+const MM={
+  A: {label:'A-Accuracy(μm)',   short:'A',  unit:'μm', color:'#2563eb'},
+  R: {label:'P-Precision(μm)',  short:'P',  unit:'μm', color:'#16a34a'},
+  B: {label:'H-Hysteresis(μm)', short:'H',  unit:'μm', color:'#8b5cf6'},
+  OE:{label:'EN-Excess Nodes',  short:'EN', unit:'개', color:'#f59e0b'},
+};
+const CC={case1:'#2563eb',case2:'#16a34a',case3:'#ea580c'};
+// Raw 시트 컬럼 인덱스 (0-based): 호기0 축1 회차2 케이스3 숫자4 파일명5 A6 R7 B_bar8 ... 허용오차14
+const COL={hobi:0,axis:1,kase:3,A:6,R:7,B:8,OE:14};
+
+// ═══════════════════════════════
+// 상태
+// ═══════════════════════════════
+let S={mode:'case',metric:'A',kase:'case1',cmpMode:'case',cmpMetric:'A',cmpCase:'case1',cmpAxis:'X'};
+let DB={}, ROUNDS=[], charts={}, modalChart=null;
+
+// ═══════════════════════════════
+// 디버그 로그
+// ═══════════════════════════════
+function dbg(msg){
+  const el=document.getElementById('debug-box');
+  el.style.display='block';
+  el.textContent+=msg+'\n';
+}
+
+// ═══════════════════════════════
+// 업로드
+// ═══════════════════════════════
+const uz=document.getElementById('upload-zone');
+uz.addEventListener('dragover',e=>{e.preventDefault();uz.classList.add('drag-over');});
+uz.addEventListener('dragleave',()=>uz.classList.remove('drag-over'));
+uz.addEventListener('drop',e=>{e.preventDefault();uz.classList.remove('drag-over');handleFiles(e.dataTransfer.files);});
+document.getElementById('fi').addEventListener('change',e=>handleFiles(e.target.files));
+
+async function handleFiles(files){
+  document.getElementById('debug-box').textContent='';
+  document.getElementById('loading').style.display='block';
+  for(const f of files) await parseFile(f);
+  document.getElementById('loading').style.display='none';
+  finalizeData();
+}
+
+async function parseFile(file){
+  return new Promise(res=>{
+    const fr=new FileReader();
+    fr.onload=e=>{
+      try{
+        const wb=XLSX.read(new Uint8Array(e.target.result),{type:'array'});
+        dbg(`파일: ${file.name} | 시트: ${wb.SheetNames.join(', ')}`);
+        for(const sn of wb.SheetNames){
+          const m=sn.match(/^Raw_(\w+)$/i);
+          if(!m){continue;}
+          const rnd=m[1].toUpperCase();
+          const ws=wb.Sheets[sn];
+          // 2D 배열로 읽기 (헤더:false → 0행이 헤더)
+          const rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:null,raw:true});
+          if(rows.length<2){dbg(`  [${sn}] 데이터 없음`);continue;}
+          dbg(`  [${sn}] → 회차:${rnd}, ${rows.length-1}행`);
+          dbg(`  헤더: ${JSON.stringify(rows[0])}`);
+          dbg(`  2행:  ${JSON.stringify(rows[1])}`);
+          parseRaw(rnd,rows);
+        }
+        addTag(file.name);
+      }catch(err){dbg('파싱 오류: '+err.message);}
+      res();
+    };
+    fr.readAsArrayBuffer(file);
+  });
+}
+
+function parseRaw(rnd, rows){
+  // rows[0] = 헤더행, rows[1~] = 데이터
+  // 헤더를 읽어서 컬럼 인덱스 동적 탐색 (방어적)
+  const hrow = rows[0].map(h => String(h||'').trim());
+
+  // 필수 컬럼 인덱스 찾기 - 이름 매칭 우선, 실패시 고정 인덱스
+  function findCol(candidates, fallback){
+    for(const c of candidates){
+      const i=hrow.findIndex(h=>h===c||h.toLowerCase()===c.toLowerCase());
+      if(i>=0) return i;
+    }
+    return fallback;
+  }
+
+  const idx={
+    hobi: findCol(['호기'],0),
+    axis: findCol(['축'],1),
+    kase: findCol(['케이스'],3),
+    A:    findCol(['A(μm)','A(um)','A'],6),
+    R:    findCol(['R(μm)','R(um)','R'],7),
+    B:    findCol(['B_bar(μm)','B_bar(um)','B_bar'],8),
+    OE:   findCol(['허용오차초과(개)','허용오차'],14),
+  };
+  dbg(`  컬럼인덱스: 호기${idx.hobi} 축${idx.axis} 케이스${idx.kase} A${idx.A} R${idx.R} B${idx.B} OE${idx.OE}`);
+
+  if(!DB[rnd]) DB[rnd]={};
+  const acc={};
+
+  for(let i=1;i<rows.length;i++){
+    const row=rows[i];
+    if(!row||row[idx.hobi]==null) continue;
+    const hobi=parseInt(row[idx.hobi]);
+    const axis=String(row[idx.axis]||'').trim().toUpperCase();
+    const cas=String(row[idx.kase]||'').trim();
+    if(!HOBIS.includes(hobi)||!AXES.includes(axis)||!CASES.includes(cas)) continue;
+    const k=`${hobi}_${axis}_${cas}`;
+    if(!acc[k]) acc[k]={hobi,axis,cas,A:[],R:[],B:[],OE:[]};
+    const pn=(v)=>{const n=parseFloat(v);return isNaN(n)?null:n;};
+    const va=pn(row[idx.A]), vr=pn(row[idx.R]), vb=pn(row[idx.B]), voe=pn(row[idx.OE]);
+    if(va!=null) acc[k].A.push(va);
+    if(vr!=null) acc[k].R.push(vr);
+    if(vb!=null) acc[k].B.push(vb);
+    if(voe!=null) acc[k].OE.push(voe);
+  }
+
+  let cnt=0;
+  for(const[k,d] of Object.entries(acc)){
+    const avg=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:null;
+    const rng=a=>a.length>1?Math.max(...a)-Math.min(...a):null;
+    DB[rnd][k]={
+      hobi:d.hobi, axis:d.axis, cas:d.cas,
+      A:avg(d.A), R:avg(d.R),
+      B: d.B.length ? Math.abs(avg(d.B)) : null,
+      OE:avg(d.OE),
+      // range (max-min)
+      A_rng:rng(d.A), R_rng:rng(d.R),
+      B_rng: d.B.length>1 ? rng(d.B) : null,
+      OE_rng:rng(d.OE),
+    };
+    cnt++;
+  }
+  dbg(`  저장: ${cnt}개 키 (예: ${Object.keys(DB[rnd]).slice(0,3).join(', ')})`);
+  // 샘플값 확인
+  const sample=DB[rnd]['1_X_case1'];
+  if(sample) dbg(`  1호기X case1: A=${sample.A?.toFixed(2)} R=${sample.R?.toFixed(2)} B=${sample.B?.toFixed(2)} OE=${sample.OE?.toFixed(2)}`);
+}
+
+function addTag(name){
+  const d=document.createElement('div');
+  d.className='file-tag';
+  d.innerHTML=`<span class="dot"></span>${name}`;
+  document.getElementById('file-tags').appendChild(d);
+}
+
+function finalizeData(){
+  const sn=r=>parseInt(r.replace(/\D/g,''))||0;
+  ROUNDS=Object.keys(DB).sort((a,b)=>sn(a)-sn(b));
+  dbg(`\n최종 회차: ${ROUNDS.join(', ')}`);
+  if(!ROUNDS.length){dbg('⚠ 로드된 데이터 없음');return;}
+  document.getElementById('hdr-status').textContent=`${ROUNDS.length}개 회차 · ${ROUNDS.join(' / ')}`;
+  document.getElementById('app').style.display='block';
+  document.getElementById('upload-zone').style.display='none';
+  buildGrid();
+  refreshAll();
+  // 디버그 박스 3초 후 숨김
+  setTimeout(()=>{document.getElementById('debug-box').style.display='none';},5000);
+}
+
+// ═══════════════════════════════
+// 데이터 조회
+// ═══════════════════════════════
+function gv(rnd,hobi,axis,cas,mk){
+  const d=DB[rnd]&&DB[rnd][`${hobi}_${axis}_${cas}`];
+  return (d&&d[mk]!=null)?d[mk]:null;
+}
+function gr(rnd,hobi,axis,cas,mk){
+  // range 조회 (mk+'_rng')
+  const d=DB[rnd]&&DB[rnd][`${hobi}_${axis}_${cas}`];
+  const rk=mk+'_rng';
+  return (d&&d[rk]!=null)?d[rk]:null;
+}
+function gs(hobi,axis,cas,mk){return ROUNDS.map(r=>gv(r,hobi,axis,cas,mk));}
+
+// ═══════════════════════════════
+// 탭
+// ═══════════════════════════════
+function switchTab(tab){
+  document.querySelectorAll('.tab').forEach((t,i)=>t.classList.toggle('active',['trend','compare'][i]===tab));
+  document.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+  document.getElementById('tab-'+tab).classList.add('active');
+  if(tab==='compare') refreshCompare();
+}
+
+// ═══════════════════════════════
+// 컨트롤 (트렌드)
+// ═══════════════════════════════
+function setMode(m){
+  S.mode=m;
+  document.getElementById('bm-case').classList.toggle('active',m==='case');
+  document.getElementById('bm-spec').classList.toggle('active',m==='spec');
+  document.getElementById('ctrl-metric').style.display=m==='case'?'flex':'none';
+  document.getElementById('ctrl-case').style.display=m==='spec'?'flex':'none';
+  refreshAll();
+}
+function setMetric(k){
+  S.metric=k;
+  document.querySelectorAll('#metric-btns .btn').forEach((b,i)=>b.classList.toggle('active',['A','R','B','OE'][i]===k));
+  refreshAll();
+}
+function setCase(c){
+  S.kase=c;
+  document.querySelectorAll('#case-btns .btn').forEach((b,i)=>b.classList.toggle('active',CASES[i]===c));
+  refreshAll();
+}
+function refreshAll(){if(ROUNDS.length){refreshPanels();}}
+
+// ═══════════════════════════════
+// 컨트롤 (비교)
+// ═══════════════════════════════
+function setCmpAxis(ax){
+  S.cmpAxis=ax;
+  document.getElementById('cax-X').classList.toggle('active',ax==='X');
+  document.getElementById('cax-Y').classList.toggle('active',ax==='Y');
+  refreshCompare();
+}
+function setCmpMode(m){
+  S.cmpMode=m;
+  document.getElementById('cbm-case').classList.toggle('active',m==='case');
+  document.getElementById('cbm-spec').classList.toggle('active',m==='spec');
+  document.getElementById('cctrl-metric').style.display=m==='case'?'flex':'none';
+  document.getElementById('cctrl-case').style.display=m==='spec'?'flex':'none';
+  refreshCompare();
+}
+function setCmpMetric(k){
+  S.cmpMetric=k;
+  document.querySelectorAll('#cmp-metric-btns .btn').forEach((b,i)=>b.classList.toggle('active',['A','R','B','OE'][i]===k));
+  refreshCompare();
+}
+function setCmpCase(c){
+  S.cmpCase=c;
+  document.querySelectorAll('#cmp-case-btns .btn').forEach((b,i)=>b.classList.toggle('active',CASES[i]===c));
+  refreshCompare();
+}
+
+// ═══════════════════════════════
+// 그리드 구성
+// ═══════════════════════════════
+function buildGrid(){
+  const grid=document.getElementById('panel-grid');
+  grid.innerHTML='';
+  // 헤더행
+  grid.appendChild(document.createElement('div')); // 빈칸
+  HOBIS.forEach(h=>{
+    const d=document.createElement('div');
+    d.className='hobi-hdr';
+    d.textContent=`${h}호기`;
+    grid.appendChild(d);
+  });
+  // X축 / Y축 행
+  AXES.forEach(axis=>{
+    const lbl=document.createElement('div');
+    lbl.className='axis-lbl';
+    lbl.textContent=axis+'축';
+    grid.appendChild(lbl);
+    HOBIS.forEach(hobi=>{
+      const wrap=document.createElement('div');
+      wrap.className='panel-wrap';
+      wrap.onclick=()=>openModal(hobi,axis);
+      const cv=document.createElement('canvas');
+      cv.id=`c_${hobi}_${axis}`;
+      // 뷰포트 높이 기반: 헤더(36)+탭(30)+컨트롤바(44)+카드헤더(34)+범례(28)+여백(30) ≈ 202
+      // 2행(X/Y) + 호기헤더행(20) → 패널 높이 = (가용높이 - 호기헤더) / 2
+      const availH = window.innerHeight - 202;
+      const cvH = Math.max(80, Math.floor((availH - 20) / 2 * 0.52));
+      cv.height = cvH;
+      wrap.appendChild(cv);
+      const mt=document.createElement('div');
+      mt.className='mini-tbl-wrap';
+      mt.id=`mt_${hobi}_${axis}`;
+      wrap.appendChild(mt);
+      grid.appendChild(wrap);
+    });
+  });
+}
+
+// ═══════════════════════════════
+// y축 공통 범위
+// ═══════════════════════════════
+function calcYRange(mode,metric,kase){
+  let vals=[];
+  HOBIS.forEach(h=>AXES.forEach(ax=>{
+    if(mode==='case'){
+      CASES.forEach(c=>gs(h,ax,c,metric).forEach(v=>v!=null&&vals.push(v)));
+    } else {
+      ['A','R','B'].forEach(mk=>CASES.forEach(c=>gs(h,ax,c,mk).forEach(v=>v!=null&&vals.push(v))));
+    }
+  }));
+  if(!vals.length) return [0,100];
+  const mn=Math.min(...vals), mx=Math.max(...vals);
+  const pd=(mx-mn)*.15||5;
+  return [mn-pd, mx+pd];
+}
+
+// ═══════════════════════════════
+// 데이터셋 생성
+// ═══════════════════════════════
+function makeDS(hobi,axis,mode,metric,kase){
+  if(mode==='case'){
+    return CASES.map(cas=>({
+      label:cas, data:gs(hobi,axis,cas,metric),
+      borderColor:CC[cas], backgroundColor:CC[cas]+'22',
+      borderWidth:1.5,
+      pointRadius:gs(hobi,axis,cas,metric).map(v=>v!=null?2.5:0),
+      spanGaps:false, tension:0.2,
+      borderDash:cas==='case2'?[5,3]:cas==='case3'?[3,2]:[],
+    }));
+  } else {
+    const ds=['A','R','B'].map(mk=>({
+      label:MM[mk].label, data:gs(hobi,axis,kase,mk),
+      borderColor:MM[mk].color, backgroundColor:MM[mk].color+'22',
+      borderWidth:1.5,
+      pointRadius:gs(hobi,axis,kase,mk).map(v=>v!=null?2:0),
+      spanGaps:false, tension:0.2, yAxisID:'y',
+    }));
+    const oe=gs(hobi,axis,kase,'OE');
+    ds.push({label:MM.OE.label,data:oe,borderColor:MM.OE.color,
+      backgroundColor:MM.OE.color+'22',borderWidth:1.5,borderDash:[4,3],
+      pointRadius:oe.map(v=>v!=null?2:0),spanGaps:false,tension:0.2,yAxisID:'y2'});
+    return ds;
+  }
+}
+
+function getOEMax(hobi,axis){
+  let vals=[];
+  CASES.forEach(c=>gs(hobi,axis,c,'OE').forEach(v=>v!=null&&vals.push(v)));
+  return vals.length?Math.max(...vals)*1.4:100;
+}
+
+// ═══════════════════════════════
+// 패널 렌더링
+// ═══════════════════════════════
+function refreshPanels(){
+  const [yMin,yMax]=calcYRange(S.mode,S.metric,S.kase);
+  HOBIS.forEach(h=>AXES.forEach(ax=>{
+    drawPanel(h,ax,yMin,yMax);
+    drawMiniTable(h,ax);
+  }));
+  updateLegend();
+}
+
+function drawPanel(hobi,axis,yMin,yMax){
+  const id=`c_${hobi}_${axis}`;
+  if(charts[id]){charts[id].destroy();delete charts[id];}
+  const canvas=document.getElementById(id);
+  if(!canvas) return;
+  const ds=makeDS(hobi,axis,S.mode,S.metric,S.kase);
+  const extra=S.mode==='spec'?{y2:{position:'right',min:0,max:getOEMax(hobi,axis),
+    ticks:{font:{size:7},color:MM.OE.color,maxTicksLimit:3,callback:v=>v.toFixed(0)},
+    grid:{display:false}}}:{};
+  charts[id]=new Chart(canvas,{
+    type:'line', data:{labels:ROUNDS,datasets:ds},
+    options:{
+      animation:false, responsive:false, maintainAspectRatio:false,
+      plugins:{legend:{display:false},tooltip:{mode:'index',intersect:false,
+        callbacks:{label:ctx=>`${ctx.dataset.label}: ${ctx.parsed.y!=null?ctx.parsed.y.toFixed(1):'—'}`}}},
+      scales:{
+        x:{ticks:{font:{size:8},color:'#9ca3af',maxRotation:0},grid:{color:'#f0efe9',lineWidth:.5}},
+        y:{min:yMin,max:yMax,
+          ticks:{font:{size:7},color:'#9ca3af',maxTicksLimit:4,callback:v=>v.toFixed(0)},
+          grid:{color:'#f0efe9',lineWidth:.5}},
+        ...extra,
+      },
+    },
+  });
+}
+
+// ═══════════════════════════════
+// 미니 열화표 (% 만)
+// ═══════════════════════════════
+function drawMiniTable(hobi,axis){
+  const wrap=document.getElementById(`mt_${hobi}_${axis}`);
+  if(!wrap||!ROUNDS.length) return;
+
+  let html=`<table class="mini-tbl"><thead><tr><th></th>${ROUNDS.map(r=>`<th>${r}</th>`).join('')}</tr></thead><tbody>`;
+
+  if(S.mode==='case'){
+    // 케이스 기준: 행=case1/2/3, 선택 지표만 표시
+    const mk=S.metric;
+    CASES.forEach(cas=>{
+      const base=gv(ROUNDS[0],hobi,axis,cas,mk);
+      html+=`<tr><td class="rlbl">${cas}</td>`;
+      ROUNDS.forEach((rnd,ri)=>{
+        const v=gv(rnd,hobi,axis,cas,mk);
+        if(v==null){html+=`<td>—</td>`;return;}
+        if(ri===0){html+=`<td class="cg">100%</td>`;return;}
+        if(base==null||base===0){html+=`<td>—</td>`;return;}
+        const pct=(v/base)*100;
+        html+=`<td class="${pctCls(pct)}">${pct.toFixed(0)}%</td>`;
+      });
+      html+=`</tr>`;
+    });
+  } else {
+    // 스펙 기준: 행=A/R/B/OE, 선택 케이스만 표시
+    const cas=S.kase;
+    [{mk:'A',lbl:'A'},{mk:'R',lbl:'P'},{mk:'B',lbl:'H'},{mk:'OE',lbl:'EN'}].forEach(({mk,lbl})=>{
+      const base=gv(ROUNDS[0],hobi,axis,cas,mk);
+      html+=`<tr><td class="rlbl">${lbl}</td>`;
+      ROUNDS.forEach((rnd,ri)=>{
+        const v=gv(rnd,hobi,axis,cas,mk);
+        if(v==null){html+=`<td>—</td>`;return;}
+        if(ri===0){html+=`<td class="cg">100%</td>`;return;}
+        if(base==null||base===0){html+=`<td>—</td>`;return;}
+        const pct=(v/base)*100;
+        html+=`<td class="${pctCls(pct)}">${pct.toFixed(0)}%</td>`;
+      });
+      html+=`</tr>`;
+    });
+  }
+
+  html+=`</tbody></table>`;
+  wrap.innerHTML=html;
+}
+
+// ═══════════════════════════════
+// 범례
+// ═══════════════════════════════
+function updateLegend(){
+  const el=document.getElementById('main-legend');
+  const items=S.mode==='case'
+    ?CASES.map(c=>({color:CC[c],label:c}))
+    :['A','R','B','OE'].map(k=>({color:MM[k].color,label:k==='OE'?`${MM[k].label}(우축)`:MM[k].label}));
+  el.innerHTML=items.map(({color,label})=>
+    `<div class="legend-item"><span class="leg-line" style="background:${color}"></span>${label}</div>`).join('');
+  document.getElementById('panel-title').textContent=
+    S.mode==='case'?`${MM[S.metric].label} — 케이스별 트렌드`:`스펙 기준 — ${S.kase}`;
+}
+
+// ═══════════════════════════════
+// 색상 헬퍼
+// ═══════════════════════════════
+function pctCls(p){
+  if(p<=105) return 'cg';
+  if(p<=115) return 'ca';
+  if(p<=130) return 'co';
+  return 'cr';
+}
+function deltaCls(d,mk){
+  if(mk==='OE'){
+    if(d<=0) return 'cg'; if(d<=5) return 'ca'; if(d<=15) return 'co'; return 'cr';
+  }
+  if(d>=0) return 'cg'; if(d>=-5) return 'ca'; if(d>=-15) return 'co'; return 'cr';
+}
+
+// ═══════════════════════════════
+// 모달
+// ═══════════════════════════════
+function openModal(hobi,axis){
+  if(!ROUNDS.length) return;
+  document.getElementById('modal-title').textContent=`${hobi}호기 ${axis}축 — 상세보기`;
+  if(modalChart){modalChart.destroy();modalChart=null;}
+  const canvas=document.getElementById('modal-canvas');
+
+  // 기본 데이터셋
+  const ds=makeDS(hobi,axis,S.mode,S.metric,S.kase);
+
+  // ── range 밴드 데이터셋 추가 ──
+  // 케이스 기준: 각 케이스별 range 밴드
+  // 스펙 기준: A/R/B 각 지표별 range 밴드
+  function makeBandDS(cas, mk, color){
+    const uppers=ROUNDS.map(r=>{
+      const v=gv(r,hobi,axis,cas,mk);
+      const rng=gr(r,hobi,axis,cas,mk);
+      return (v!=null&&rng!=null)?v+rng/2:null;
+    });
+    const lowers=ROUNDS.map(r=>{
+      const v=gv(r,hobi,axis,cas,mk);
+      const rng=gr(r,hobi,axis,cas,mk);
+      return (v!=null&&rng!=null)?v-rng/2:null;
+    });
+    const bandColor=color+'40'; // 25% opacity
+    return [
+      {label:`_upper_${cas}_${mk}`, data:uppers,
+       borderColor:bandColor, backgroundColor:'transparent',
+       borderWidth:1, borderDash:[3,3],
+       pointRadius:0, spanGaps:false, tension:0.2,
+       yAxisID:mk==='OE'?'y2':'y', fill:false},
+      {label:`_lower_${cas}_${mk}`, data:lowers,
+       borderColor:bandColor, backgroundColor:bandColor,
+       borderWidth:1, borderDash:[3,3],
+       pointRadius:0, spanGaps:false, tension:0.2,
+       yAxisID:mk==='OE'?'y2':'y', fill:'-1'},
+    ];
+  }
+
+  const bandDS=[];
+  if(S.mode==='case'){
+    CASES.forEach(cas=>{
+      makeBandDS(cas, S.metric, CC[cas]).forEach(d=>bandDS.push(d));
+    });
+  } else {
+    ['A','R','B'].forEach(mk=>{
+      makeBandDS(S.kase, mk, MM[mk].color).forEach(d=>bandDS.push(d));
+    });
+    // OE 우축 range 밴드
+    makeBandDS(S.kase,'OE',MM.OE.color).forEach(d=>bandDS.push(d));
+  }
+
+  // 밴드를 먼저, 실선을 위에
+  const allDS=[...bandDS, ...ds];
+
+  // y 범위 (range 포함)
+  let vals=[];
+  if(S.mode==='case'){
+    CASES.forEach(c=>{
+      ROUNDS.forEach(r=>{
+        const v=gv(r,hobi,axis,c,S.metric);
+        const rng=gr(r,hobi,axis,c,S.metric);
+        if(v!=null&&rng!=null){vals.push(v+rng/2);vals.push(v-rng/2);}
+        else if(v!=null) vals.push(v);
+      });
+    });
+  } else {
+    ['A','R','B'].forEach(mk=>{
+      ROUNDS.forEach(r=>{
+        const v=gv(r,hobi,axis,S.kase,mk);
+        const rng=gr(r,hobi,axis,S.kase,mk);
+        if(v!=null&&rng!=null){vals.push(v+rng/2);vals.push(v-rng/2);}
+        else if(v!=null) vals.push(v);
+      });
+    });
+  }
+  const mn=vals.length?Math.min(...vals):0, mx=vals.length?Math.max(...vals):100;
+  const pd=(mx-mn)*.12||5;
+
+  const extra=S.mode==='spec'?{y2:{position:'right',min:0,max:getOEMax(hobi,axis)*1.3,
+    ticks:{font:{size:10},color:MM.OE.color,maxTicksLimit:5,callback:v=>v.toFixed(0)},
+    grid:{display:false}}}:{};
+
+  modalChart=new Chart(canvas,{
+    type:'line', data:{labels:ROUNDS,datasets:allDS},
+    options:{
+      animation:false, responsive:true, maintainAspectRatio:false,
+      plugins:{
+        legend:{display:true,position:'top',
+          labels:{font:{size:11},boxWidth:14,padding:8,
+            // _로 시작하는 range 밴드 레이블 숨김
+            filter:(item)=>!item.text.startsWith('_')}},
+        tooltip:{mode:'index',intersect:false,
+          callbacks:{
+            label:ctx=>{
+              if(ctx.dataset.label.startsWith('_')) return null;
+              return `${ctx.dataset.label}: ${ctx.parsed.y!=null?ctx.parsed.y.toFixed(2):'—'}`;
+            }
+          }
+        }
+      },
+      scales:{
+        x:{ticks:{font:{size:11},color:'#6b6960'},grid:{color:'#f0efe9'}},
+        y:{min:mn-pd,max:mx+pd,
+          ticks:{font:{size:11},color:'#6b6960',maxTicksLimit:6,callback:v=>v.toFixed(1)},
+          grid:{color:'#f0efe9'},
+          title:{display:true,text:S.mode==='case'?`${MM[S.metric].label} (${MM[S.metric].unit})`:'μm',font:{size:11}}},
+        ...extra,
+      },
+    },
+  });
+  buildDetailTable(hobi,axis);
+  document.getElementById('modal').classList.add('open');
+}
+
+function buildDetailTable(hobi,axis){
+  const tbl=document.getElementById('modal-table');
+  tbl.innerHTML='';
+  let html='';
+
+  // 값+range 셀 공통 렌더 함수
+  function valCell(rnd,cas,mk){
+    const v=gv(rnd,hobi,axis,cas,mk);
+    if(v==null) return `<td>—</td>`;
+    const rng=gr(rnd,hobi,axis,cas,mk);
+    const half=rng!=null?(rng/2):null;
+    const rngStr=half!=null
+      ?`<br><span style="font-size:0.82em;color:#9ca3af;">±${half.toFixed(2)}</span>`
+      :'';
+    return `<td style="line-height:1.4;">${v.toFixed(2)}${rngStr}</td>`;
+  }
+
+  if(S.mode==='case'){
+    const mk=S.metric;
+    const isD=(mk==='B'||mk==='OE');
+    const unit=MM[mk].unit;
+    const valLbl=MM[mk].label;
+    const chgLbl=isD?`${MM[mk].short}(Δ${unit})`:`${MM[mk].short}(%)`;
+
+    html+=`<thead><tr>`;
+    html+=`<th style="text-align:left;padding-left:10px;">${valLbl}</th>`;
+    ROUNDS.forEach(r=>html+=`<th>${r}</th>`);
+    html+=`</tr></thead><tbody>`;
+
+    CASES.forEach(cas=>{
+      html+=`<tr><td class="rlbl">${cas}</td>`;
+      ROUNDS.forEach(rnd=>{ html+=valCell(rnd,cas,mk); });
+      html+=`</tr>`;
+    });
+
+    html+=`<tr class="sep-row"><td colspan="${ROUNDS.length+1}"></td></tr>`;
+
+    html+=`<tr><td class="rlbl" style="font-style:italic;color:#6b6960;">${chgLbl}</td>`;
+    ROUNDS.forEach(r=>html+=`<th style="background:#f4f3ef;font-size:11px;">${r}</th>`);
+    html+=`</tr>`;
+
+    CASES.forEach(cas=>{
+      const base=gv(ROUNDS[0],hobi,axis,cas,mk);
+      html+=`<tr><td class="rlbl">${cas}</td>`;
+      ROUNDS.forEach((rnd,ri)=>{
+        const v=gv(rnd,hobi,axis,cas,mk);
+        if(v==null){html+=`<td>—</td>`;return;}
+        if(ri===0){html+=`<td class="cg">${isD?'0':'100%'}</td>`;return;}
+        if(base==null||base===0){html+=`<td>—</td>`;return;}
+        if(isD){const d=v-base; html+=`<td class="${deltaCls(d,mk)}">${d>=0?'+':''}${d.toFixed(2)}</td>`;}
+        else{const p=(v/base)*100; html+=`<td class="${pctCls(p)}">${p.toFixed(1)}%</td>`;}
+      });
+      html+=`</tr>`;
+    });
+
+  } else {
+    const cas=S.kase;
+    const mks=[
+      {mk:'A', lbl:'A-Accuracy(μm)',   isD:false},
+      {mk:'R', lbl:'P-Precision(μm)',  isD:false},
+      {mk:'B', lbl:'H-Hysteresis(μm)', isD:true },
+      {mk:'OE',lbl:'EN-Excess Nodes',  isD:true },
+    ];
+
+    html+=`<thead><tr>`;
+    html+=`<th style="text-align:left;padding-left:10px;">${cas}</th>`;
+    ROUNDS.forEach(r=>html+=`<th>${r}</th>`);
+    html+=`</tr></thead><tbody>`;
+
+    mks.forEach(({mk,lbl})=>{
+      html+=`<tr><td class="rlbl">${lbl}</td>`;
+      ROUNDS.forEach(rnd=>{ html+=valCell(rnd,cas,mk); });
+      html+=`</tr>`;
+    });
+
+    html+=`<tr class="sep-row"><td colspan="${ROUNDS.length+1}"></td></tr>`;
+
+    html+=`<tr><td class="rlbl" style="font-style:italic;color:#6b6960;">변화율/Δ</td>`;
+    ROUNDS.forEach(r=>html+=`<th style="background:#f4f3ef;font-size:11px;">${r}</th>`);
+    html+=`</tr>`;
+
+    mks.forEach(({mk,lbl,isD})=>{
+      const base=gv(ROUNDS[0],hobi,axis,cas,mk);
+      const unit=MM[mk].unit;
+      const chgLbl=isD?`${MM[mk].short}(Δ${unit})`:`${MM[mk].short}(%)`;
+      html+=`<tr><td class="rlbl">${chgLbl}</td>`;
+      ROUNDS.forEach((rnd,ri)=>{
+        const v=gv(rnd,hobi,axis,cas,mk);
+        if(v==null){html+=`<td>—</td>`;return;}
+        if(ri===0){html+=`<td class="cg">${isD?'0':'100%'}</td>`;return;}
+        if(base==null||base===0){html+=`<td>—</td>`;return;}
+        if(isD){const d=v-base; html+=`<td class="${deltaCls(d,mk)}">${d>=0?'+':''}${d.toFixed(2)}</td>`;}
+        else{const p=(v/base)*100; html+=`<td class="${pctCls(p)}">${p.toFixed(1)}%</td>`;}
+      });
+      html+=`</tr>`;
+    });
+  }
+
+  html+=`</tbody>`;
+  tbl.innerHTML=html;
+}
+
+function closeModal(){document.getElementById('modal').classList.remove('open');}
+
+// ═══════════════════════════════
+// 호기 비교
+// ═══════════════════════════════
+function refreshCompare(){
+  if(!ROUNDS.length) return;
+  const hobA=parseInt(document.getElementById('cmp-a').value);
+  const hobB=parseInt(document.getElementById('cmp-b').value);
+  const axis=S.cmpAxis;
+  const grid=document.getElementById('cmp-pairs');
+  grid.innerHTML='';
+  // 기존 비교 차트 파괴
+  Object.keys(charts).filter(k=>k.startsWith('cmp_')).forEach(k=>{charts[k].destroy();delete charts[k];});
+
+  const pairs=[{hobi:hobA,color:'#2563eb'},{hobi:hobB,color:'#ea580c'}];
+  // 공통 y범위
+  let allV=[];
+  pairs.forEach(({hobi})=>{
+    if(S.cmpMode==='case') CASES.forEach(c=>gs(hobi,axis,c,S.cmpMetric).forEach(v=>v!=null&&allV.push(v)));
+    else ['A','R','B'].forEach(mk=>gs(hobi,axis,S.cmpCase,mk).forEach(v=>v!=null&&allV.push(v)));
+  });
+  const mn=allV.length?Math.min(...allV):0, mx=allV.length?Math.max(...allV):100;
+  const pd=(mx-mn)*.18||5;
+
+  pairs.forEach(({hobi,color})=>{
+    const col=document.createElement('div'); col.className='cmp-panel';
+    const hdr=document.createElement('div'); hdr.className='cmp-panel-hdr';
+    hdr.style.background=color; hdr.textContent=`${hobi}호기 — ${axis}축`;
+    col.appendChild(hdr);
+    const cw=document.createElement('div'); cw.className='cmp-canvas-wrap';
+    const cid=`cmp_${hobi}_${axis}`;
+    const canvas=document.createElement('canvas'); canvas.id=cid; canvas.height=200;
+    cw.appendChild(canvas); col.appendChild(cw); grid.appendChild(col);
+
+    const ds=makeDS(hobi,axis,S.cmpMode,S.cmpMetric,S.cmpCase);
+    const oeAllV=CASES.flatMap(c=>gs(hobi,axis,c,'OE')).filter(v=>v!=null);
+    const oeMx=oeAllV.length?Math.max(...oeAllV)*1.4:100;
+    const extra=S.cmpMode==='spec'?{y2:{position:'right',min:0,max:oeMx,
+      ticks:{font:{size:10},color:MM.OE.color,maxTicksLimit:4,callback:v=>v.toFixed(0)},
+      grid:{display:false}}}:{};
+
+    charts[cid]=new Chart(canvas,{
+      type:'line', data:{labels:ROUNDS,datasets:ds},
+      options:{
+        animation:false, responsive:true, maintainAspectRatio:false,
+        plugins:{
+          legend:{display:true,position:'top',labels:{font:{size:11},boxWidth:12,padding:6}},
+          tooltip:{mode:'index',intersect:false,callbacks:{
+            label:ctx=>`${ctx.dataset.label}: ${ctx.parsed.y!=null?ctx.parsed.y.toFixed(2):'—'}`}}
+        },
+        scales:{
+          x:{ticks:{font:{size:10},color:'#6b6960'},grid:{color:'#f0efe9'}},
+          y:{min:mn-pd,max:mx+pd,
+            ticks:{font:{size:10},color:'#6b6960',maxTicksLimit:6,callback:v=>v.toFixed(1)},
+            grid:{color:'#f0efe9'},
+            title:{display:true,
+              text:S.cmpMode==='case'?`${MM[S.cmpMetric].label} (${MM[S.cmpMetric].unit})`:'μm',
+              font:{size:11}}},
+          ...extra,
+        },
+      },
+    });
+  });
+}
+
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){closeModal();closeManual();}});
+
+function openManual(){document.getElementById('manual-modal').classList.add('open');}
+function closeManual(){document.getElementById('manual-modal').classList.remove('open');}
+function switchMTab(idx){
+  for(let i=0;i<5;i++){
+    const tab=document.getElementById(`mtab-${i}`);
+    const con=document.getElementById(`mc-${i}`);
+    if(i===idx){
+      tab.style.color='#2563eb';
+      tab.style.borderBottomColor='#2563eb';
+      con.style.display='block';
+    } else {
+      tab.style.color='#6b6960';
+      tab.style.borderBottomColor='transparent';
+      con.style.display='none';
+    }
+  }
+}
+</script>
+</body>
+</html>
