@@ -116,7 +116,7 @@ table.detail-tbl .sep-row td{background:#f0efe9;height:3px;padding:0;border:none
 
 <header>
   <h1>ANP 측정 결과 뷰어</h1>
-  <span class="mono" style="color:#6b7280;font-size:10px;letter-spacing:.04em;">V1.0.00_260610</span>
+  <span class="mono" style="color:#6b7280;font-size:10px;letter-spacing:.04em;">V1.0.01_260701</span>
   <span class="mono" id="hdr-status">파일을 업로드하세요</span>
   <button onclick="openManual()" style="margin-left:auto;padding:4px 12px;background:transparent;border:1px solid #4b5563;border-radius:5px;color:#d1d5db;font-size:11px;cursor:pointer;font-family:'IBM Plex Sans KR',sans-serif;transition:all .15s;" onmouseover="this.style.background='#374151'" onmouseout="this.style.background='transparent'">📖 사용 매뉴얼</button>
 </header>
@@ -232,7 +232,7 @@ table.detail-tbl .sep-row td{background:#f0efe9;height:3px;padding:0;border:none
   <div class="modal" style="max-width:780px;">
     <div class="modal-hdr">
       <span class="modal-title">📖 ANP 측정 결과 뷰어 — 사용 매뉴얼</span>
-      <span class="mono" style="font-size:10px;color:#9ca3af;margin-right:8px;">V1.0.00_260610</span>
+      <span class="mono" style="font-size:10px;color:#9ca3af;margin-right:8px;">V1.0.01_260701</span>
       <button class="modal-close" onclick="closeManual()">✕</button>
     </div>
     <div class="modal-body" style="gap:0;padding:0;">
@@ -806,37 +806,51 @@ function drawMiniTable(hobi,axis){
   const wrap=document.getElementById(`mt_${hobi}_${axis}`);
   if(!wrap||!ROUNDS.length) return;
 
+  // 표시값 계산 헬퍼
+  // A(Accuracy), P(Precision): ÷2 하여 ± 표기
+  // H(Hysteresis): 절대값 그대로
+  // OE(Excess Nodes): 정수
+  function dispVal(mk, v){
+    if(v==null) return '—';
+    if(mk==='A'||mk==='R') return `±${(v/2).toFixed(1)}`;
+    if(mk==='B') return `${v.toFixed(1)}`;
+    if(mk==='OE') return `${Math.round(v)}`;
+    return v.toFixed(1);
+  }
+
+  // 단위 결정
+  function unitStr(mk){
+    if(mk==='OE') return '개';
+    return 'μm';
+  }
+
   let html=`<table class="mini-tbl"><thead><tr><th></th>${ROUNDS.map(r=>`<th>${r}</th>`).join('')}</tr></thead><tbody>`;
 
   if(S.mode==='case'){
-    // 케이스 기준: 행=case1/2/3, 선택 지표만 표시
+    // 케이스 기준: 행=case1/2/3, 선택 지표값 표시
     const mk=S.metric;
+    const unit=unitStr(mk);
+    // 단위 행
+    html+=`<tr><td class="rlbl" style="color:#9ca3af;font-style:italic;">단위:${unit}</td>`;
+    ROUNDS.forEach(()=>html+=`<td style="background:#fafaf8;"></td>`);
+    html+=`</tr>`;
     CASES.forEach(cas=>{
-      const base=gv(ROUNDS[0],hobi,axis,cas,mk);
       html+=`<tr><td class="rlbl">${cas}</td>`;
-      ROUNDS.forEach((rnd,ri)=>{
+      ROUNDS.forEach(rnd=>{
         const v=gv(rnd,hobi,axis,cas,mk);
-        if(v==null){html+=`<td>—</td>`;return;}
-        if(ri===0){html+=`<td class="cg">100%</td>`;return;}
-        if(base==null||base===0){html+=`<td>—</td>`;return;}
-        const pct=(v/base)*100;
-        html+=`<td class="${pctCls(pct)}">${pct.toFixed(0)}%</td>`;
+        html+=`<td>${dispVal(mk,v)}</td>`;
       });
       html+=`</tr>`;
     });
   } else {
-    // 스펙 기준: 행=A/R/B/OE, 선택 케이스만 표시
+    // 스펙 기준: 행=A/P/H/EN, 선택 케이스값 표시
     const cas=S.kase;
     [{mk:'A',lbl:'A'},{mk:'R',lbl:'P'},{mk:'B',lbl:'H'},{mk:'OE',lbl:'EN'}].forEach(({mk,lbl})=>{
-      const base=gv(ROUNDS[0],hobi,axis,cas,mk);
-      html+=`<tr><td class="rlbl">${lbl}</td>`;
-      ROUNDS.forEach((rnd,ri)=>{
+      const unit=unitStr(mk);
+      html+=`<tr><td class="rlbl">${lbl}<span style="color:#9ca3af;font-size:7px;margin-left:2px;">${unit}</span></td>`;
+      ROUNDS.forEach(rnd=>{
         const v=gv(rnd,hobi,axis,cas,mk);
-        if(v==null){html+=`<td>—</td>`;return;}
-        if(ri===0){html+=`<td class="cg">100%</td>`;return;}
-        if(base==null||base===0){html+=`<td>—</td>`;return;}
-        const pct=(v/base)*100;
-        html+=`<td class="${pctCls(pct)}">${pct.toFixed(0)}%</td>`;
+        html+=`<td>${dispVal(mk,v)}</td>`;
       });
       html+=`</tr>`;
     });
@@ -856,8 +870,11 @@ function updateLegend(){
     :['A','R','B','OE'].map(k=>({color:MM[k].color,label:k==='OE'?`${MM[k].label}(우축)`:MM[k].label}));
   el.innerHTML=items.map(({color,label})=>
     `<div class="legend-item"><span class="leg-line" style="background:${color}"></span>${label}</div>`).join('');
+  const unit = S.mode==='case' ? (S.metric==='OE'?'개':'μm') : (S.kase);
   document.getElementById('panel-title').textContent=
-    S.mode==='case'?`${MM[S.metric].label} — 케이스별 트렌드`:`스펙 기준 — ${S.kase}`;
+    S.mode==='case'
+      ? `${MM[S.metric].label} — 케이스별 트렌드  (단위: ${S.metric==='OE'?'개':'μm'})`
+      : `스펙 기준 — ${S.kase}  (단위: μm / EN: 개)`;
 }
 
 // ═══════════════════════════════
@@ -974,7 +991,13 @@ function openModal(hobi,axis){
           callbacks:{
             label:ctx=>{
               if(ctx.dataset.label.startsWith('_')) return null;
-              return `${ctx.dataset.label}: ${ctx.parsed.y!=null?ctx.parsed.y.toFixed(2):'—'}`;
+              const lbl=ctx.dataset.label;
+              const raw=ctx.parsed.y;
+              if(raw==null) return `${lbl}: —`;
+              // A-Accuracy, P-Precision은 ÷2 → ±표기
+              const isAP=lbl.startsWith('A-')||lbl.startsWith('P-')||lbl==='A-Accuracy(μm)'||lbl==='P-Precision(μm)';
+              const disp=isAP?`±${(raw/2).toFixed(2)}`:`${raw.toFixed(2)}`;
+              return `${lbl}: ${disp}`;
             }
           }
         }
@@ -998,16 +1021,30 @@ function buildDetailTable(hobi,axis){
   tbl.innerHTML='';
   let html='';
 
+  // ── 표시값 포맷 헬퍼 ──
+  // A(Accuracy), P(Precision): 전체값 ÷2 → ±X.XX
+  // H(Hysteresis), OE: 그대로
+  function fmtVal(mk, v){
+    if(v==null) return '—';
+    if(mk==='A'||mk==='R') return `±${(v/2).toFixed(2)}`;
+    if(mk==='OE') return `${Math.round(v)}`;
+    return v.toFixed(2);
+  }
+
   // 값+range 셀 공통 렌더 함수
   function valCell(rnd,cas,mk){
     const v=gv(rnd,hobi,axis,cas,mk);
     if(v==null) return `<td>—</td>`;
     const rng=gr(rnd,hobi,axis,cas,mk);
     const half=rng!=null?(rng/2):null;
-    const rngStr=half!=null
-      ?`<br><span style="font-size:0.82em;color:#9ca3af;">±${half.toFixed(2)}</span>`
+    // range도 A/P는 전체 range ÷2 의 절반 → ÷4, 나머지는 ÷2 그대로
+    const rngDisplay=(half!=null)
+      ?((mk==='A'||mk==='R')?`±${(half/2).toFixed(2)}`:`±${half.toFixed(2)}`)
+      :null;
+    const rngStr=rngDisplay!=null
+      ?`<br><span style="font-size:0.82em;color:#9ca3af;">${rngDisplay}</span>`
       :'';
-    return `<td style="line-height:1.4;">${v.toFixed(2)}${rngStr}</td>`;
+    return `<td style="line-height:1.4;">${fmtVal(mk,v)}${rngStr}</td>`;
   }
 
   if(S.mode==='case'){
@@ -1035,10 +1072,12 @@ function buildDetailTable(hobi,axis){
     html+=`</tr>`;
 
     CASES.forEach(cas=>{
-      const base=gv(ROUNDS[0],hobi,axis,cas,mk);
+      const baseRaw=gv(ROUNDS[0],hobi,axis,cas,mk);
+      const base=(mk==='A'||mk==='R')&&baseRaw!=null ? baseRaw/2 : baseRaw;
       html+=`<tr><td class="rlbl">${cas}</td>`;
       ROUNDS.forEach((rnd,ri)=>{
-        const v=gv(rnd,hobi,axis,cas,mk);
+        const vRaw=gv(rnd,hobi,axis,cas,mk);
+        const v=(mk==='A'||mk==='R')&&vRaw!=null ? vRaw/2 : vRaw;
         if(v==null){html+=`<td>—</td>`;return;}
         if(ri===0){html+=`<td class="cg">${isD?'0':'100%'}</td>`;return;}
         if(base==null||base===0){html+=`<td>—</td>`;return;}
@@ -1075,12 +1114,14 @@ function buildDetailTable(hobi,axis){
     html+=`</tr>`;
 
     mks.forEach(({mk,lbl,isD})=>{
-      const base=gv(ROUNDS[0],hobi,axis,cas,mk);
+      const baseRaw=gv(ROUNDS[0],hobi,axis,cas,mk);
+      const base=(mk==='A'||mk==='R')&&baseRaw!=null ? baseRaw/2 : baseRaw;
       const unit=MM[mk].unit;
       const chgLbl=isD?`${MM[mk].short}(Δ${unit})`:`${MM[mk].short}(%)`;
       html+=`<tr><td class="rlbl">${chgLbl}</td>`;
       ROUNDS.forEach((rnd,ri)=>{
-        const v=gv(rnd,hobi,axis,cas,mk);
+        const vRaw=gv(rnd,hobi,axis,cas,mk);
+        const v=(mk==='A'||mk==='R')&&vRaw!=null ? vRaw/2 : vRaw;
         if(v==null){html+=`<td>—</td>`;return;}
         if(ri===0){html+=`<td class="cg">${isD?'0':'100%'}</td>`;return;}
         if(base==null||base===0){html+=`<td>—</td>`;return;}
@@ -1144,7 +1185,13 @@ function refreshCompare(){
         plugins:{
           legend:{display:true,position:'top',labels:{font:{size:11},boxWidth:12,padding:6}},
           tooltip:{mode:'index',intersect:false,callbacks:{
-            label:ctx=>`${ctx.dataset.label}: ${ctx.parsed.y!=null?ctx.parsed.y.toFixed(2):'—'}`}}
+            label:ctx=>{
+              const lbl=ctx.dataset.label;
+              const raw=ctx.parsed.y;
+              if(raw==null) return `${lbl}: —`;
+              const isAP=lbl.startsWith('A-')||lbl.startsWith('P-');
+              return `${lbl}: ${isAP?`±${(raw/2).toFixed(2)}`:`${raw.toFixed(2)}`}`;
+            }}}
         },
         scales:{
           x:{ticks:{font:{size:10},color:'#6b6960'},grid:{color:'#f0efe9'}},
