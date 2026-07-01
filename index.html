@@ -116,7 +116,7 @@ table.detail-tbl .sep-row td{background:#f0efe9;height:3px;padding:0;border:none
 
 <header>
   <h1>ANP 측정 결과 뷰어</h1>
-  <span class="mono" style="color:#6b7280;font-size:10px;letter-spacing:.04em;">V1.0.01_260701</span>
+  <span class="mono" style="color:#6b7280;font-size:10px;letter-spacing:.04em;">V2.0.00_260701</span>
   <span class="mono" id="hdr-status">파일을 업로드하세요</span>
   <button onclick="openManual()" style="margin-left:auto;padding:4px 12px;background:transparent;border:1px solid #4b5563;border-radius:5px;color:#d1d5db;font-size:11px;cursor:pointer;font-family:'IBM Plex Sans KR',sans-serif;transition:all .15s;" onmouseover="this.style.background='#374151'" onmouseout="this.style.background='transparent'">📖 사용 매뉴얼</button>
 </header>
@@ -181,7 +181,7 @@ table.detail-tbl .sep-row td{background:#f0efe9;height:3px;padding:0;border:none
   <div class="tab-content" id="tab-compare">
     <div class="ctrl-bar">
       <span class="ctrl-label">축</span>
-      <div class="btn-group">
+      <div class="btn-group" id="cmp-axis-group">
         <button class="btn active" id="cax-X" onclick="setCmpAxis('X')">X축</button>
         <button class="btn" id="cax-Y" onclick="setCmpAxis('Y')">Y축</button>
       </div>
@@ -232,7 +232,7 @@ table.detail-tbl .sep-row td{background:#f0efe9;height:3px;padding:0;border:none
   <div class="modal" style="max-width:780px;">
     <div class="modal-hdr">
       <span class="modal-title">📖 ANP 측정 결과 뷰어 — 사용 매뉴얼</span>
-      <span class="mono" style="font-size:10px;color:#9ca3af;margin-right:8px;">V1.0.01_260701</span>
+      <span class="mono" style="font-size:10px;color:#9ca3af;margin-right:8px;">V2.0.00_260701</span>
       <button class="modal-close" onclick="closeManual()">✕</button>
     </div>
     <div class="modal-body" style="gap:0;padding:0;">
@@ -431,8 +431,10 @@ table.detail-tbl .sep-row td{background:#f0efe9;height:3px;padding:0;border:none
 // 상수
 // ═══════════════════════════════
 const HOBIS=[1,2,3,4,5,6];
-const AXES=['X','Y'];
-const CASES=['case1','case2','case3'];
+const ALL_AXES=['X','Y','Z'];  // 허용 축
+let AXES=['X','Y'];            // 실제 감지된 축 (파싱 후 갱신)
+const ALL_CASES=['case1','case2','case3'];  // 허용 케이스
+let CASES=['case1','case2','case3'];        // 실제 감지된 케이스
 const MM={
   A: {label:'A-Accuracy(μm)',   short:'A',  unit:'μm', color:'#2563eb'},
   R: {label:'P-Precision(μm)',  short:'P',  unit:'μm', color:'#16a34a'},
@@ -537,7 +539,7 @@ function parseRaw(rnd, rows){
     const hobi=parseInt(row[idx.hobi]);
     const axis=String(row[idx.axis]||'').trim().toUpperCase();
     const cas=String(row[idx.kase]||'').trim();
-    if(!HOBIS.includes(hobi)||!AXES.includes(axis)||!CASES.includes(cas)) continue;
+    if(!HOBIS.includes(hobi)||!ALL_AXES.includes(axis)||!ALL_CASES.includes(cas)) continue;
     const k=`${hobi}_${axis}_${cas}`;
     if(!acc[k]) acc[k]={hobi,axis,cas,A:[],R:[],B:[],OE:[]};
     const pn=(v)=>{const n=parseFloat(v);return isNaN(n)?null:n;};
@@ -582,13 +584,70 @@ function finalizeData(){
   ROUNDS=Object.keys(DB).sort((a,b)=>sn(a)-sn(b));
   dbg(`\n최종 회차: ${ROUNDS.join(', ')}`);
   if(!ROUNDS.length){dbg('⚠ 로드된 데이터 없음');return;}
-  document.getElementById('hdr-status').textContent=`${ROUNDS.length}개 회차 · ${ROUNDS.join(' / ')}`;
+
+  // ── 감지된 축 추출 (X,Y,Z 순서 유지) ──
+  const foundAxes=new Set();
+  for(const rnd of ROUNDS){
+    for(const key of Object.keys(DB[rnd])){
+      const ax=DB[rnd][key].axis;
+      if(ax) foundAxes.add(ax);
+    }
+  }
+  AXES=ALL_AXES.filter(a=>foundAxes.has(a));
+  if(AXES.length===0) AXES=['X','Y'];
+  dbg(`감지된 축: ${AXES.join(', ')}`);
+
+  // ── 감지된 케이스 추출 ──
+  const foundCases=new Set();
+  for(const rnd of ROUNDS){
+    for(const key of Object.keys(DB[rnd])){
+      const c=DB[rnd][key].cas;
+      if(c) foundCases.add(c);
+    }
+  }
+  CASES=ALL_CASES.filter(c=>foundCases.has(c));
+  if(CASES.length===0) CASES=['case1'];
+  dbg(`감지된 케이스: ${CASES.join(', ')}`);
+
+  // 감지 결과에 맞춰 상태 조정
+  if(!AXES.includes(S.cmpAxis)) S.cmpAxis=AXES[0];
+  if(!CASES.includes(S.kase)) S.kase=CASES[0];
+  if(!CASES.includes(S.cmpCase)) S.cmpCase=CASES[0];
+  rebuildAxisButtons();
+  rebuildCaseButtons();
+
+  document.getElementById('hdr-status').textContent=`${ROUNDS.length}개 회차 · ${ROUNDS.join(' / ')} · ${AXES.join('/')}축`;
   document.getElementById('app').style.display='block';
   document.getElementById('upload-zone').style.display='none';
   buildGrid();
   refreshAll();
   // 디버그 박스 3초 후 숨김
   setTimeout(()=>{document.getElementById('debug-box').style.display='none';},5000);
+}
+
+// 비교탭 축 선택 버튼 동적 재생성
+function rebuildAxisButtons(){
+  const grp=document.getElementById('cmp-axis-group');
+  if(!grp) return;
+  grp.innerHTML=AXES.map(ax=>
+    `<button class="btn${ax===S.cmpAxis?' active':''}" id="cax-${ax}" onclick="setCmpAxis('${ax}')">${ax}축</button>`
+  ).join('');
+}
+
+// 케이스 선택 버튼 동적 재생성 (트렌드 스펙기준 + 비교탭)
+function rebuildCaseButtons(){
+  const grp1=document.getElementById('case-btns');
+  if(grp1){
+    grp1.innerHTML=CASES.map(c=>
+      `<button class="btn${c===S.kase?' active':''}" onclick="setCase('${c}')">${c}</button>`
+    ).join('');
+  }
+  const grp2=document.getElementById('cmp-case-btns');
+  if(grp2){
+    grp2.innerHTML=CASES.map(c=>
+      `<button class="btn${c===S.cmpCase?' active':''}" onclick="setCmpCase('${c}')">${c}</button>`
+    ).join('');
+  }
 }
 
 // ═══════════════════════════════
@@ -634,7 +693,7 @@ function setMetric(k){
 }
 function setCase(c){
   S.kase=c;
-  document.querySelectorAll('#case-btns .btn').forEach((b,i)=>b.classList.toggle('active',CASES[i]===c));
+  document.querySelectorAll('#case-btns .btn').forEach(b=>b.classList.toggle('active',b.textContent===c));
   refreshAll();
 }
 function refreshAll(){if(ROUNDS.length){refreshPanels();}}
@@ -644,8 +703,10 @@ function refreshAll(){if(ROUNDS.length){refreshPanels();}}
 // ═══════════════════════════════
 function setCmpAxis(ax){
   S.cmpAxis=ax;
-  document.getElementById('cax-X').classList.toggle('active',ax==='X');
-  document.getElementById('cax-Y').classList.toggle('active',ax==='Y');
+  AXES.forEach(a=>{
+    const btn=document.getElementById('cax-'+a);
+    if(btn) btn.classList.toggle('active',a===ax);
+  });
   refreshCompare();
 }
 function setCmpMode(m){
@@ -663,7 +724,7 @@ function setCmpMetric(k){
 }
 function setCmpCase(c){
   S.cmpCase=c;
-  document.querySelectorAll('#cmp-case-btns .btn').forEach((b,i)=>b.classList.toggle('active',CASES[i]===c));
+  document.querySelectorAll('#cmp-case-btns .btn').forEach(b=>b.classList.toggle('active',b.textContent===c));
   refreshCompare();
 }
 
@@ -693,10 +754,11 @@ function buildGrid(){
       wrap.onclick=()=>openModal(hobi,axis);
       const cv=document.createElement('canvas');
       cv.id=`c_${hobi}_${axis}`;
-      // 뷰포트 높이 기반: 헤더(36)+탭(30)+컨트롤바(44)+카드헤더(34)+범례(28)+여백(30) ≈ 202
-      // 2행(X/Y) + 호기헤더행(20) → 패널 높이 = (가용높이 - 호기헤더) / 2
+      // 뷰포트 높이 기반: 상단 UI ≈ 202px 제외
+      // 축 개수(nAxes)만큼 행 분할
+      const nAxes = AXES.length;
       const availH = window.innerHeight - 202;
-      const cvH = Math.max(80, Math.floor((availH - 20) / 2 * 0.52));
+      const cvH = Math.max(70, Math.floor((availH - 20) / nAxes * 0.52));
       cv.height = cvH;
       wrap.appendChild(cv);
       const mt=document.createElement('div');
